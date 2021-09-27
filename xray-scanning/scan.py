@@ -1,10 +1,9 @@
 import argparse
-import sre_parse
-
 import requests
 import sys
 import logging
 from requests.auth import HTTPBasicAuth
+from retrying import retry, RetryError
 
 
 class Artifactory:
@@ -59,7 +58,22 @@ class ScanOperation:
             raise RuntimeError(f"Could not determine status of artifact  {self._component_id} from response {response}")
 
     def scan(self) -> bool:
-        pass
+        logging.info(f"Start scanning of artifact {self._component_id}")
+        try:
+            self.wait_for_scan_to_complete()
+            return True
+        except RetryError:
+            logging.info(f"Scanning of artifact {self._component_id} did not complete in time")
+            return False
+
+    def retry_if_not_yet_scanned(result):
+        if not result:
+            logging.debug(f"Scan of artifact not yet complete")
+        return not result
+
+    @retry(wait_fixed=3000, stop_max_attempt_number=2, retry_on_result=retry_if_not_yet_scanned)
+    def wait_for_scan_to_complete(self):
+        return self.is_scanned()
 
     def convert_component_id_to_path(self):
         last_colon_idx = self._component_id.rfind(":")
@@ -89,4 +103,8 @@ if __name__ == '__main__':
     artifactory = Artifactory(base_url=args.base_url, user=args.user, token=args.token)
     scan_operation = ScanOperation(artifactory, args.component_id, args.repo_key)
     is_scanned: bool = scan_operation.is_scanned()
+    if not is_scanned:
+        logging.info(f"Artifact {args.component_id} has not yet been scanned. Starting scan")
+        if not scan_operation.scan():
+            logging.error(f"Artifact {args.component_id} could not be scanned. Aborting")
 
