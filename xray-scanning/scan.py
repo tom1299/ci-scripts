@@ -15,7 +15,7 @@ class Artifactory:
         self._session.verify = True
         self._session.auth = HTTPBasicAuth(user, token)
         self._session.headers.update({"content-type": "application/json"})
-        resp = self._session.get(self.base_url + "/api/system/ping")
+        resp = self.session.get(self.base_url + "/artifactory/api/system/ping")
         assert resp.text == "OK", "Could not connect to artifactory"
         logging.info(f"Successfully connected to {self.base_url}")
 
@@ -25,7 +25,7 @@ class Artifactory:
 
     @property
     def base_url(self):
-        return self.base_url
+        return self._base_url
 
     @property
     def ui_api_url(self):
@@ -85,7 +85,8 @@ if __name__ == '__main__':
     parser.add_argument("--repo-key", help="The repo-key")
     parser.add_argument("--base-url", help="The url to artifactory")
     args = parser.parse_args()
-    print(args)
 
     artifactory = Artifactory(base_url=args.base_url, user=args.user, token=args.token)
+    scan_operation = ScanOperation(artifactory, args.component_id, args.repo_key)
+    is_scanned: bool = scan_operation.is_scanned()
 
