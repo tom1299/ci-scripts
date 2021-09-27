@@ -82,7 +82,7 @@ if __name__ == '__main__':
     parser.add_argument("--user", help="The artifactory user name")
     parser.add_argument("--token", help="The api token of the user")
     parser.add_argument("--component-id",
-                        help="The component id. E.g.: 'docker://wlan/backend/wlan-dlm:5.0.50-test.88'")
+                        help="The component id. E.g.: 'docker://myrepo/path/component:5.0.50'")
     parser.add_argument("--repo-key", help="The repo-key")
     parser.add_argument("--base-url", help="The url to artifactory")
     args = parser.parse_args()
