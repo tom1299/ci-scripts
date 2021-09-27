@@ -36,7 +36,6 @@ class ScanOperation:
 
     def __init__(self, artifactory: Artifactory, component_id: str, repo_key: str):
         self._artifactory = artifactory
-        # TODO Create path out of id
         self._component_id = component_id
         self._component_path = self.convert_component_id_to_path()
         self._repo_key = repo_key
