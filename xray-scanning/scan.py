@@ -223,7 +223,7 @@ def parse_args():
 
 
 def start_and_wait_for_scan():
-    if True: # not artifact_scan.is_scanned():
+    if not artifact_scan.is_scanned():
         logging.info(f"Artifact {args.component_id} has not yet been scanned. Starting scan")
         if not artifact_scan.scan():
             logging.error(f"Artifact {args.component_id} could not be scanned. Aborting")
