@@ -55,59 +55,67 @@ class Artifactory:
 class ArtifactScan:
 
     def __init__(self, artifactory: Artifactory, component_id: str, repo_key: str):
-        self._artifactory = artifactory
-        self._component_id = component_id
-        self._component_path = self.convert_component_id_to_path()
-        self._report_name = self._component_path.replace("/", "-").replace(".", "-")
-        self._repo_key = repo_key
-        self._report_id = None
+        self.__artifactory = artifactory
+        self.__component_id = component_id
+        self.__component_path = self.convert_component_id_to_path()
+        self.__report_name = self.__component_path.replace("/", "-").replace(".", "-")
+        self.__repo_key = repo_key
+        self.__report_id = None
+
+    @property
+    def component_id(self):
+        return self.__component_id
 
     def is_scanned(self) -> bool:
-        response = self._artifactory.session.get(f"{self._artifactory.ui_api_url}/artifactxray?path="
-                                                 f"{self._component_path}/manifest.json&repoKey={self._repo_key}")
+        response = self.__artifactory.session.get(f"{self.__artifactory.ui_api_url}/artifactxray?path="
+                                                  f"{self.__component_path}/manifest.json&repoKey={self.__repo_key}")
         if response.status_code == 404:
-            logging.info(f"Artifact {self._component_id} has not yet been scanned")
+            logging.info(f"Artifact {self.__component_id} has not yet been scanned")
             return False
         elif response.status_code == 200:
             xray_status = response.json()
             if xray_status["xrayIndexStatus"] == "Not indexed":
-                logging.info(f"Artifact {self._component_id} has not yet been scanned")
+                logging.info(f"Artifact {self.__component_id} has not yet been scanned")
                 return False
             else:
-                logging.info(f"Artifact {self._component_id} has already been scanned")
+                logging.info(f"Artifact {self.__component_id} has already been scanned")
                 return True
         else:
-            logging.error(f"Could not determine status of artifact  {self._component_id} from response {response}")
-            raise RuntimeError(f"Could not determine status of artifact  {self._component_id} from response {response}")
+            logging.error(f"Could not determine status of artifact  {self.__component_id} from response {response}")
+            raise RuntimeError(f"Could not determine status of artifact  {self.__component_id}"
+                               f"from response {response}")
 
     def scan(self) -> bool:
-        logging.info(f"Start scanning of artifact {self._component_id}")
+        logging.info(f"Start scanning of artifact {self.__component_id}")
         try:
-            response = self._artifactory.session.post(f"{self._artifactory.xray_api_url}/scanArtifact",
-                                                      json={"componentID": f"{self._component_id}"})
+            response = self.__artifactory.session.post(f"{self.__artifactory.xray_api_url}/scanArtifact",
+                                                       json={"componentID": f"{self.__component_id}"})
             if response.status_code != 200:
-                logging.info(f"Scanning of artifact {self._component_id} could not be started. Reason: {response.text}")
+                logging.info(f"Scanning of artifact {self.__component_id} could not be started."
+                             f" Reason: {response.text}")
                 return False
 
             self.wait_for_scan_to_complete()
             return True
         except RetryError:
-            logging.info(f"Scanning of artifact {self._component_id} did not complete in time")
+            logging.info(f"Scanning of artifact {self.__component_id} did not complete in time")
             return False
 
+    @staticmethod
     def retry_if_not_yet_scanned(result):
         if not result:
             logging.debug(f"Scan of artifact not yet complete")
         return not result
 
-    @retry(wait_fixed=3000, stop_max_attempt_number=2, retry_on_result=retry_if_not_yet_scanned)
+    # noinspection PyUnresolvedReferences
+    @retry(wait_fixed=3000, stop_max_attempt_number=2, retry_on_result=retry_if_not_yet_scanned.__func__)
     def wait_for_scan_to_complete(self):
         return self.is_scanned()
 
     def convert_component_id_to_path(self):
-        last_colon_idx = self._component_id.rfind(":")
-        type_index = self._component_id.find("//") + 2
-        return self._component_id[type_index:last_colon_idx] + "/" + self._component_id[last_colon_idx+1:]
+        last_colon_idx = self.__component_id.rfind(":")
+        type_index = self.__component_id.find("//") + 2
+        return self.__component_id[type_index:last_colon_idx] + "/" + self.__component_id[last_colon_idx + 1:]
 
     def get_report(self):
         if not self.create_report():
@@ -116,76 +124,80 @@ class ArtifactScan:
         return self.get_report_details()
 
     def create_report(self):
-        logging.info(f"Start report creation for artifact {self._component_id}")
+        logging.info(f"Start report creation for artifact {self.__component_id}")
         request_data = {
-            "name": f"{self._report_name}",
+            "name": f"{self.__report_name}",
             "type": "security",
             "resources": {
                 "repositories": [
                     {
-                        "name": f"{self._repo_key}"
+                        "name": f"{self.__repo_key}"
                     }
                 ]
             },
             "filters": {
-                "impacted_artifact": f"{self._component_id}",
+                "impacted_artifact": f"{self.__component_id}",
                 "severities": [
                     "Critical"
                 ]
             }
         }
-        response = self._artifactory.session.post(f"{self._artifactory.xray_api_url}/reports/vulnerabilities",
-                                                  json=request_data)
+        response = self.__artifactory.session.post(f"{self.__artifactory.xray_api_url}/reports/vulnerabilities",
+                                                   json=request_data)
         if response.status_code != 200:
-            logging.info(f"Report creation for artifact {self._component_id} could not be started")
+            logging.info(f"Report creation for artifact {self.__component_id} could not be started")
             return None
 
-        self._report_id = response.json()["report_id"]
-        return self._report_id
+        self.__report_id = response.json()["report_id"]
+        return self.__report_id
 
     def get_report_details(self):
-        response = self._artifactory.session.post(f"{self._artifactory.xray_api_url}/reports/vulnerabilities/{self._report_id}?direction=desc&page_num=1&num_of_rows=100&order_by=severity")
+        response = self.__artifactory.session.post(f"{self.__artifactory.xray_api_url}/reports/vulnerabilities/"
+                                                   f"{self.__report_id}?direction=desc&page_num=1&"
+                                                   f"num_of_rows=100&order_by=severity")
         if response.status_code != 200:
-            logging.info(f"Report details for artifact {self._component_id} could not be retrieved")
+            logging.info(f"Report details for artifact {self.__component_id} could not be retrieved")
             return None
         else:
             return response.json()
 
+    @staticmethod
     def retry_if_not_yet_completed(result):
         if not result:
             logging.debug(f"Creation of report not yet complete")
         return not result
 
-    @retry(wait_fixed=5000, stop_max_attempt_number=30, retry_on_result=retry_if_not_yet_completed)
+    # noinspection PyUnresolvedReferences
+    @retry(wait_fixed=5000, stop_max_attempt_number=30, retry_on_result=retry_if_not_yet_completed.__func__)
     def wait_for_report_creation(self):
-        logging.info(f"Waiting for report {self._report_id} to be completed")
-        response = self._artifactory.session.get(f"{self._artifactory.xray_api_url}/reports/{self._report_id}")
+        logging.info(f"Waiting for report {self.__report_id} to be completed")
+        response = self.__artifactory.session.get(f"{self.__artifactory.xray_api_url}/reports/{self.__report_id}")
 
         if response.status_code == 404:
-            logging.debug(f"Report {self._report_id} not yet completed")
+            logging.debug(f"Report {self.__report_id} not yet completed")
             return False
         elif response.status_code == 200:
             report_metadata = response.json()
 
             if report_metadata["status"] != "completed":
-                logging.debug(f"Report {self._report_id} not yet completed: {report_metadata}")
+                logging.debug(f"Report {self.__report_id} not yet completed: {report_metadata}")
                 return False
             elif report_metadata["num_of_processed_artifacts"] == 0:
-                logging.error(f"Report {self._report_id} completed without any processed artifacts")
-                raise RuntimeError(f"Report {self._report_id} completed without any processed artifacts")
+                logging.error(f"Report {self.__report_id} completed without any processed artifacts")
+                raise RuntimeError(f"Report {self.__report_id} completed without any processed artifacts")
         else:
-            logging.error(f"Report {self._report_id} could not be completed: {response.text}")
-            raise RuntimeError(f"Report {self._report_id} could not be completed: {response.text}")
+            logging.error(f"Report {self.__report_id} could not be completed: {response.text}")
+            raise RuntimeError(f"Report {self.__report_id} could not be completed: {response.text}")
 
         return True
 
     def delete_report(self):
-        response = self._artifactory.session.delete(f"{self._artifactory.xray_api_url}/reports/{self._report_id}")
+        response = self.__artifactory.session.delete(f"{self.__artifactory.xray_api_url}/reports/{self.__report_id}")
         if response.status_code != 200:
-            logging.error(f"Report {self._report_id} could not be deleted: {response.text}")
+            logging.error(f"Report {self.__report_id} could not be deleted: {response.text}")
             return False
         else:
-            logging.debug(f"Report {self._report_id} successfully deleted")
+            logging.debug(f"Report {self.__report_id} successfully deleted")
 
 
 class ArtifactReportAnalysis:
@@ -222,12 +234,11 @@ def get_script_path():
 
 
 def parse_args():
-    global args
     parser = argparse.ArgumentParser()
     parser.add_argument("--user", help="The artifactory user name")
     parser.add_argument("--token", help="The api token of the user")
     parser.add_argument("--component-id",
-                        help="The component id. E.g.: 'docker://myrepo/path/component:5.0.50'")
+                        help="The component id. E.g.: 'docker://repo/path/component:5.0.50'")
     parser.add_argument("--repo-key", help="The repo-key")
     parser.add_argument("--base-url", help="The url to artifactory")
     parser.add_argument("--report-target-directory", help="The target directory to save the report to",
@@ -235,20 +246,19 @@ def parse_args():
     return parser.parse_args()
 
 
-def start_and_wait_for_scan():
-    if True: # not artifact_scan.is_scanned():
-        logging.info(f"Artifact {args.component_id} has not yet been scanned. Starting scan")
+def start_and_wait_for_scan(artifact_scan):
+    if not artifact_scan.is_scanned():
+        logging.info(f"Artifact {artifact_scan} has not yet been scanned. Starting scan")
         if not artifact_scan.scan():
-            logging.error(f"Artifact {args.component_id} could not be scanned. Aborting")
+            logging.error(f"Artifact {artifact_scan.component_id} could not be scanned. Aborting")
             exit(1)
     else:
-        logging.info(f"Artifact {args.component_id} has already been scanned. "
+        logging.info(f"Artifact {artifact_scan.component_id} has already been scanned. "
                      f"Aborting to avoid redundant report creation")
         exit(1)
 
 
-def get_and_store_report():
-    global report
+def get_and_store_report(artifact_scan, report_target_directory):
     report = None
     try:
         report = artifact_scan.get_report()
@@ -257,24 +267,24 @@ def get_and_store_report():
     finally:
         artifact_scan.delete_report()
     if not report:
-        logging.error(f"Vulnerability report for artifact {args.component_id} could not created. Aborting")
+        logging.error(f"Vulnerability report for artifact {artifact_scan.component_id} could not created. Aborting")
         exit(1)
-    logging.info(f"Vulnerability report for artifact {args.component_id} successfully obtained")
-    save_report(args.report_target_directory, report, args.component_id)
+    logging.info(f"Vulnerability report for artifact {artifact_scan.component_id} successfully obtained")
+    save_report(report_target_directory, report, artifact_scan.component_id)
     return report
 
 
-def analyse_report():
-    logging.info(f"Report for artifact {args.component_id} successfully obtained. Starting analysis")
+def analyse_report(report, component_id):
+    logging.info(f"Report for artifact {component_id} successfully obtained. Starting analysis")
 
     ignored_vulnerabilities = get_ignored_vulnerabilities_from_file()
 
-    analysis = ArtifactReportAnalysis(args.component_id, report, ignored_vulnerabilities)
+    analysis = ArtifactReportAnalysis(component_id, report, ignored_vulnerabilities)
     if analysis.contains_critical_vulnerabilities():
-        logging.critical(f"Report for artifact {args.component_id} contains critical vulnerabilities")
+        logging.critical(f"Report for artifact {component_id} contains critical vulnerabilities")
         exit(1)
     else:
-        logging.info(f"Report for artifact {args.component_id} does not contains critical vulnerabilities")
+        logging.info(f"Report for artifact {component_id} does not contains critical vulnerabilities")
         exit(0)
 
 
@@ -289,7 +299,7 @@ def get_ignored_vulnerabilities_from_file():
     return ignored_vulnerabilities
 
 
-if __name__ == '__main__':
+def main():
     init_logging()
 
     args = parse_args()
@@ -297,10 +307,12 @@ if __name__ == '__main__':
     artifactory = Artifactory(base_url=args.base_url, user=args.user, token=args.token)
     artifact_scan = ArtifactScan(artifactory, args.component_id, args.repo_key)
 
-    start_and_wait_for_scan()
+    start_and_wait_for_scan(artifact_scan)
 
-    report = get_and_store_report()
+    scan_report = get_and_store_report(artifact_scan, args.report_target_directory)
 
-    analyse_report()
+    analyse_report(scan_report, args.component_id)
 
 
+if __name__ == '__main__':
+    main()
