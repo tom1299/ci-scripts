@@ -2,11 +2,13 @@ import argparse
 from datetime import datetime
 import json
 import requests
+import os
 import sys
 import logging
 import tempfile
 from requests.auth import HTTPBasicAuth
 from retrying import retry, RetryError
+from pathlib import Path
 
 
 def get_report_file_name(target_directory, component_id):
@@ -108,7 +110,8 @@ class ArtifactScan:
         return self._component_id[type_index:last_colon_idx] + "/" + self._component_id[last_colon_idx+1:]
 
     def get_report(self):
-        self.create_report()
+        if not self.create_report():
+            return None
         self.wait_for_report_creation()
         return self.get_report_details()
 
@@ -116,6 +119,7 @@ class ArtifactScan:
         logging.info(f"Start report creation for artifact {self._component_id}")
         request_data = {
             "name": f"{self._report_name}",
+            "type": "security",
             "resources": {
                 "repositories": [
                     {
@@ -137,6 +141,7 @@ class ArtifactScan:
             return None
 
         self._report_id = response.json()["report_id"]
+        return self._report_id
 
     def get_report_details(self):
         response = self._artifactory.session.post(f"{self._artifactory.xray_api_url}/reports/vulnerabilities/{self._report_id}?direction=desc&page_num=1&num_of_rows=100&order_by=severity")
@@ -151,7 +156,7 @@ class ArtifactScan:
             logging.debug(f"Creation of report not yet complete")
         return not result
 
-    @retry(wait_fixed=2000, stop_max_attempt_number=20, retry_on_result=retry_if_not_yet_completed)
+    @retry(wait_fixed=5000, stop_max_attempt_number=30, retry_on_result=retry_if_not_yet_completed)
     def wait_for_report_creation(self):
         logging.info(f"Waiting for report {self._report_id} to be completed")
         response = self._artifactory.session.get(f"{self._artifactory.xray_api_url}/reports/{self._report_id}")
@@ -169,8 +174,8 @@ class ArtifactScan:
                 logging.error(f"Report {self._report_id} completed without any processed artifacts")
                 raise RuntimeError(f"Report {self._report_id} completed without any processed artifacts")
         else:
-            logging.error(f"Report #{self._report_id} could not be completed: {response.text}")
-            raise RuntimeError(f"Report #{self._report_id} could not be completed: {response.text}")
+            logging.error(f"Report {self._report_id} could not be completed: {response.text}")
+            raise RuntimeError(f"Report {self._report_id} could not be completed: {response.text}")
 
         return True
 
@@ -185,15 +190,19 @@ class ArtifactScan:
 
 class ArtifactReportAnalysis:
 
-    def __init__(self, component_id, vulnerability_report):
+    def __init__(self, component_id, vulnerability_report, ignored_vulnerabilities=None):
+        if ignored_vulnerabilities is None:
+            ignored_vulnerabilities = []
         self._component_id = component_id
         self._vulnerability_report = vulnerability_report
+        self._ignored_vulnerabilities = ignored_vulnerabilities
 
     def contains_critical_vulnerabilities(self):
         for row in self._vulnerability_report["rows"]:
-            if row["severity"] == "Critical":
+            if not [cve for cve in row["cves"] if cve["cve"] in self._ignored_vulnerabilities]:
                 logging.critical(f"Critical vulnerability found: {row}")
                 return True
+
         logging.info(f"No critical vulnerability found")
         return False
 
@@ -206,6 +215,10 @@ def init_logging():
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     root.addHandler(handler)
+
+
+def get_script_path():
+    return os.path.dirname(os.path.realpath(sys.argv[0]))
 
 
 def parse_args():
@@ -223,7 +236,7 @@ def parse_args():
 
 
 def start_and_wait_for_scan():
-    if not artifact_scan.is_scanned():
+    if True: # not artifact_scan.is_scanned():
         logging.info(f"Artifact {args.component_id} has not yet been scanned. Starting scan")
         if not artifact_scan.scan():
             logging.error(f"Artifact {args.component_id} could not be scanned. Aborting")
@@ -236,9 +249,9 @@ def start_and_wait_for_scan():
 
 def get_and_store_report():
     global report
+    report = None
     try:
         report = artifact_scan.get_report()
-        save_report(args.report_target_directory, report, args.component_id)
     except Exception as e:
         logging.error("An error occurred while trying to get the vulnerability report", e)
     finally:
@@ -247,18 +260,33 @@ def get_and_store_report():
         logging.error(f"Vulnerability report for artifact {args.component_id} could not created. Aborting")
         exit(1)
     logging.info(f"Vulnerability report for artifact {args.component_id} successfully obtained")
+    save_report(args.report_target_directory, report, args.component_id)
     return report
 
 
 def analyse_report():
     logging.info(f"Report for artifact {args.component_id} successfully obtained. Starting analysis")
-    analysis = ArtifactReportAnalysis(args.component_id, report)
+
+    ignored_vulnerabilities = get_ignored_vulnerabilities_from_file()
+
+    analysis = ArtifactReportAnalysis(args.component_id, report, ignored_vulnerabilities)
     if analysis.contains_critical_vulnerabilities():
         logging.critical(f"Report for artifact {args.component_id} contains critical vulnerabilities")
         exit(1)
     else:
         logging.info(f"Report for artifact {args.component_id} does not contains critical vulnerabilities")
         exit(0)
+
+
+def get_ignored_vulnerabilities_from_file():
+    ignored_vulnerabilities = []
+    ignored_vul_file_name = get_script_path() + "/ignored_vulnerabilities"
+    if Path(ignored_vul_file_name).is_file():
+        with open(ignored_vul_file_name) as vulnerabilities:
+            for vulnerability in vulnerabilities:
+                ignored_vulnerabilities.append(vulnerability.strip())
+        logging.info(f"Starting analysis with ignored vulnerabilities {ignored_vulnerabilities}")
+    return ignored_vulnerabilities
 
 
 if __name__ == '__main__':
