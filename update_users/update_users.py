@@ -34,9 +34,9 @@ def init_logging():
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
     handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.DEBUG)
+    handler.setLevel(logging.INFO)
     file_handler = logging.FileHandler('update_users.log')
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     file_handler.setFormatter(formatter)
@@ -82,30 +82,22 @@ def filter_user(user):
 
 def update_users(artifactory, dry_run=True, delay_in_seconds=2):
     all_users = get_users(artifactory)
-    users = filter_users(all_users)
+    filtered_users = filter_users(all_users)
 
-    print("Users to be updated:")
-    for user in users:
+    print("Users in realm internal:")
+    for user in filtered_users:
         print(user["name"])
 
-    if not users:
+    if not filtered_users:
         logging.error(f"Users could not be retrieved")
         return False
 
-    for user in users:
-        name = user["name"]
-        realm = user["realm"]
-        if realm != "internal":
-            logging.debug(f"User {name} with realm {realm} will not be updated")
-            continue
-        elif "@" not in name:
-            logging.debug(f"User {name} is not an email address and will not be updated")
-            continue
-        elif name.startswith("sa_"):
-            logging.debug(f"User {name} is system account and will not be updated")
-            continue
+    logging.info(f"Starting update of users with realm internal")
+    updates_done = 0
 
-        logging.debug(f"Getting details for users {name}")
+    for user in filtered_users:
+        name = user["name"]
+
         response = artifactory.session.get(f"{artifactory.api_url}/security/users/{name}")
         if response.status_code != 200:
             logging.error(f"Could not get user details for user {name}: {response.text}")
@@ -119,17 +111,23 @@ def update_users(artifactory, dry_run=True, delay_in_seconds=2):
 
         if not is_admin and not internal_password_disabled and last_logged_ln_millis == 0\
                 and details_realm == "internal":
-            logging.debug(f"User {name} with realm {details_realm} has not yet logged in. "
+            logging.info(f"User {name} with realm {details_realm} has not yet logged in. "
                           f"Updating internalPasswordDisabled")
             user_details["internalPasswordDisabled"] = True
-            logging.debug(f"User {name} will be updated")
+            updates_done += 1
             if not dry_run:
+                logging.debug(f"User {name} will be updated")
                 time.sleep(delay_in_seconds)
                 response = artifactory.session.post(f"{artifactory.api_url}/security/users/{name}", json=user_details)
                 if response.status_code != 200:
                     logging.error(f"Could not update user details for user {name}: {response.text}")
                 else:
-                    logging.info(f"Successfully updated user details for user {name}")
+                    logging.debug(f"Successfully updated user details for user {name}")
+            else:
+                logging.info(f"User: {name}, {details_realm}, {last_logged_ln_millis}, {internal_password_disabled}"
+                             f" would be updated")
+
+    logging.info(f"{updates_done} users updated")
 
 
 def main():
