@@ -2,7 +2,7 @@ import sys
 import yaml
 
 
-def update_chart_version():
+def update_dependency_version():
     with open(chart_file, 'r') as chart_yaml:
         chart = yaml.load(chart_yaml, Loader=yaml.FullLoader)
 
@@ -34,4 +34,4 @@ if __name__ == '__main__':
     dependency_name = sys.argv[2]
     new_version = sys.argv[3]
 
-    update_chart_version()
+    update_dependency_version()
