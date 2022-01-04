@@ -79,6 +79,6 @@ if __name__ == '__main__':
 
     flux_repo = Repo(flux_repo_path)
 
-    update_helm_release(flux_repo_path + "/helm-repo.yaml", os.path.basename(os.path.normpath(helm_repo_path)))
+    update_helm_release(flux_repo_path + "/sources/helm-repo.yaml", os.path.basename(os.path.normpath(helm_repo_path)))
     commit_changes(flux_repo, message)
     flux_repo.git.push('origin')
