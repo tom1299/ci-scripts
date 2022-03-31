@@ -1,4 +1,8 @@
 import glob
+import os
+import shutil
+import subprocess
+
 import yaml
 
 
@@ -7,22 +11,14 @@ class GitRepositoryMetaData:
         self.name: str
         self.url: str
         self.tag: str
-        self.branch: str
-
-    def __str__(self):
-        return str(self.__dict__)
 
 
 class HelmReleaseMetaData:
     def __init__(self):
         self.name: str
+        self.chart: str
         self.repo: GitRepositoryMetaData
         self.values: dict
-
-    def __str__(self):
-        data = self.__dict__
-        data["repo"] = self.repo.__dict__
-        return str(data)
 
 
 def get_git_repositories(source_path: str) -> dict:
@@ -40,7 +36,7 @@ def get_git_repositories(source_path: str) -> dict:
                 if "tag" in source_document['spec']['ref']:
                     repo.tag = source_document['spec']['ref']['tag']
                 elif "branch" in source_document['spec']['ref']:
-                    repo.branch = source_document['spec']['ref']['branch']
+                    repo.tag = source_document['spec']['ref']['branch']
                 repos[repo.name] = repo
     return repos
 
@@ -74,6 +70,7 @@ def get_helm_releases(helm_release_path: str, repos: dict, values: dict):
                 else:
                     continue
                 helm_release_name = yaml_document['metadata']['name']
+                helm_chart = yaml_document['spec']['chart']['spec']['chart']
 
                 source_ref = yaml_document["spec"]["chart"]["spec"]["sourceRef"]
                 if not source_ref["kind"] == "GitRepository":
@@ -94,6 +91,7 @@ def get_helm_releases(helm_release_path: str, repos: dict, values: dict):
 
                 helm_release = HelmReleaseMetaData()
                 helm_release.name = helm_release_name
+                helm_release.chart = helm_chart
                 helm_release.repo = repo
                 helm_release.values = chart_values
                 helm_releases.append(helm_release)
@@ -101,7 +99,8 @@ def get_helm_releases(helm_release_path: str, repos: dict, values: dict):
 
 
 if __name__ == '__main__':
-    base_path = "~/git/wlan-flux"
+    base_path = "/home/reuhl/git/wlan-flux"
+    work_dir = "/tmp/work"
     source_path = f"{base_path}/sources"
     helm_release_path = f"{base_path}/helmreleases"
     config_maps_path = f"{base_path}/configmaps"
@@ -109,6 +108,25 @@ if __name__ == '__main__':
     repos = get_git_repositories(source_path)
     values = get_values(config_maps_path)
 
-    helm_releases = get_helm_releases(helm_release_path, repos, values)
-    for helm_release in helm_releases:
+    try:
+        shutil.rmtree(work_dir)
+    except FileNotFoundError:
         pass
+    os.mkdir(work_dir)
+
+    helm_releases = get_helm_releases(helm_release_path, repos, values)
+    helm_output_dir = work_dir + "/generated"
+    os.mkdir(helm_output_dir)
+    for helm_release in helm_releases:
+        print(helm_release)
+        repo_dir = f"{work_dir}/{helm_release.repo.name}"
+        subprocess.run(['git', 'clone', '--depth', '1', '--branch', helm_release.repo.tag, helm_release.repo.url, repo_dir])
+
+        value_file_name = f'{work_dir}/{helm_release.name}-values.yaml'
+        with open(value_file_name, 'w') as value_file:
+            value_file.write(helm_release.values)
+
+        chart_dir = repo_dir + "/" + helm_release.chart
+        chart_target = helm_output_dir + "/" + helm_release.name + ".yaml"
+        with open(chart_target, "w") as helm_output:
+            subprocess.run(['helm', '-f', value_file_name, 'template', '--debug', chart_dir], stdout=helm_output)
