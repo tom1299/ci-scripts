@@ -52,8 +52,7 @@ def get_values(config_map_path: str) -> dict:
                 print(f"Found config map {config_map['metadata']['name']}")
 
             if "values.yaml" not in config_map["data"]:
-                print(
-                    f"config map {config_map['metadata']['name']} does not contain 'values.yaml' node")
+                print(f"config map {config_map['metadata']['name']} does not contain 'values.yaml' node")
                 continue
             values[config_map['metadata']['name']] = config_map["data"]["values.yaml"]
     return values
@@ -101,9 +100,9 @@ def get_helm_releases(helm_release_path: str, repos: dict, values: dict):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Render k8s manifests from flux helm releases')
-    parser.add_argument('--base-dir', '-b', nargs='?', dest="base_path", required=True, help='Path to folder containing the flux manifests')
-    parser.add_argument('--work-dir', '-w', nargs='?', dest="work_dir", required=True,
-                        help='Path to working directory')
+    parser.add_argument('--base-dir', '-b', nargs='?', dest="base_path", required=True,
+                        help='Path to folder containing the flux manifests')
+    parser.add_argument('--work-dir', '-w', nargs='?', dest="work_dir", required=True, help='Path to working directory')
 
     args = parser.parse_args()
     return args
@@ -137,7 +136,8 @@ if __name__ == '__main__':
     os.mkdir(helm_output_dir)
     for helm_release in helm_releases:
         repo_dir = f"{work_dir}/{helm_release.repo.name}"
-        subprocess.run(['git', 'clone', '--depth', '1', '--branch', helm_release.repo.tag, helm_release.repo.url, repo_dir])
+        subprocess.run(
+            ['git', 'clone', '--depth', '1', '--branch', helm_release.repo.tag, helm_release.repo.url, repo_dir])
 
         value_file_name = f'{work_dir}/{helm_release.name}-values.yaml'
         with open(value_file_name, 'w') as value_file:
