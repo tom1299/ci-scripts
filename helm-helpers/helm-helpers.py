@@ -1,3 +1,4 @@
+import argparse
 import glob
 import os
 import shutil
@@ -98,9 +99,21 @@ def get_helm_releases(helm_release_path: str, repos: dict, values: dict):
     return helm_releases
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Render k8s manifests from flux helm releases')
+    parser.add_argument('--base-dir', '-b', nargs='?', dest="base_path", required=True, help='Path to folder containing the flux manifests')
+    parser.add_argument('--work-dir', '-w', nargs='?', dest="work_dir", required=True,
+                        help='Path to working directory')
+
+    args = parser.parse_args()
+    return args
+
+
 if __name__ == '__main__':
-    base_path = "/home/reuhl/git/wlan-flux"
-    work_dir = "/tmp/work"
+    args = parse_args()
+
+    base_path = args.base_path
+    work_dir = args.work_dir
     source_path = f"{base_path}/sources"
     helm_release_path = f"{base_path}/helmreleases"
     config_maps_path = f"{base_path}/configmaps"
@@ -115,10 +128,14 @@ if __name__ == '__main__':
     os.mkdir(work_dir)
 
     helm_releases = get_helm_releases(helm_release_path, repos, values)
+
+    if not helm_releases:
+        print(f"No helm releases found in {helm_release_path}")
+        exit(1)
+
     helm_output_dir = work_dir + "/generated"
     os.mkdir(helm_output_dir)
     for helm_release in helm_releases:
-        print(helm_release)
         repo_dir = f"{work_dir}/{helm_release.repo.name}"
         subprocess.run(['git', 'clone', '--depth', '1', '--branch', helm_release.repo.tag, helm_release.repo.url, repo_dir])
 
@@ -130,3 +147,6 @@ if __name__ == '__main__':
         chart_target = helm_output_dir + "/" + helm_release.name + ".yaml"
         with open(chart_target, "w") as helm_output:
             subprocess.run(['helm', '-f', value_file_name, 'template', '--debug', chart_dir], stdout=helm_output)
+
+        assert os.path.exists(chart_target)
+        assert os.path.getsize(chart_target) > 100
