@@ -23,14 +23,15 @@ class HelmRelease:
     values: dict = None
 
 
-def create_from_files(folder: str, create_method) -> dict:
+def create_from_files(folder: str, create_method, **kwargs) -> dict:
     created_objects = {}
     yaml_files = glob.glob(f"{folder}/*.yaml")
     for yaml_file in yaml_files:
         with open(yaml_file, 'r') as file_content:
-            yaml_doc = yaml.load(file_content, Loader=yaml.FullLoader)
-            created_object = create_method(yaml_doc)
-            created_objects[created_object.name] = created_object
+            yaml_docs = yaml.load_all(file_content, Loader=yaml.FullLoader)
+            for yaml_doc in yaml_docs:
+                created_object = create_method(yaml_doc, **kwargs)
+                created_objects[created_object.name] = created_object
     return created_objects
 
 
@@ -53,9 +54,8 @@ class GitRepositoryBuilder:
 
     def build(self) -> GitRepository:
         if not self.is_git_repository():
-            raise Exception(
-                f"GitRepository can only be created from kind \"GitRepository\". "
-                f"Kind {self.yaml_doc['kind']} is not supported")
+            raise Exception(f"GitRepository can only be created from kind \"GitRepository\". "
+                            f"Kind {self.yaml_doc['kind']} is not supported")
         repo = GitRepository(name=self.yaml_doc['metadata']['name'], url=self.yaml_doc['spec']['url'])
         repo.tag = self.get_git_repository_tag()
         return repo
@@ -66,6 +66,27 @@ class GitRepositoryBuilder:
             return ref['tag']
         elif "branch" in ref:
             return ref['branch']
+
+
+class HelmReleaseBuilder:
+
+    @staticmethod
+    def create(yaml_doc: dict, git_repositories, config_values) -> HelmRelease:
+        builder = HelmReleaseBuilder(yaml_doc, git_repositories, config_values)
+        return builder.build()
+
+    @staticmethod
+    def create_helm_releases(sources_folder: str, git_repositories: Dict[str, GitRepository],
+                             config_values: Dict[str, dict]) -> [HelmRelease]:
+        return create_from_files(sources_folder, HelmReleaseBuilder.create, git_repositories=git_repositories, config_values=config_values)
+
+    def __init__(self, yaml_doc: dict, git_repositories, config_values):
+        self.yaml_doc = yaml_doc
+        self.git_repositories = git_repositories
+        self.config_values = config_values
+
+    def build(self) -> HelmRelease:
+        return HelmRelease()
 
 
 def get_helm_values(config_map_path: str) -> dict:
@@ -147,6 +168,8 @@ if __name__ == '__main__':
 
     repos = GitRepositoryBuilder.create_git_repositories(sources_folder=source_path)
     values = get_helm_values(config_maps_path)
+
+    HelmReleaseBuilder.create_helm_releases(helm_release_path, repos, values)
 
     try:
         shutil.rmtree(work_dir)
