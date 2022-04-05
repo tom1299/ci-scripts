@@ -1,4 +1,5 @@
 import argparse
+from dataclasses import dataclass
 import glob
 import os
 import shutil
@@ -7,11 +8,11 @@ import subprocess
 import yaml
 
 
+@dataclass
 class GitRepositoryMetaData:
-    def __init__(self):
-        self.name: str
-        self.url: str
-        self.tag: str
+    name: str = None
+    url: str = None
+    tag: str = None
 
 
 class HelmReleaseMetaData:
@@ -35,10 +36,7 @@ def add_git_repository(repos, source_file):
         source_document = yaml.load(source_yaml, Loader=yaml.FullLoader)
         if source_document["kind"] == "GitRepository":
             print(f"Found git repository {source_document['metadata']['name']}")
-            repo = GitRepositoryMetaData()
-            repo.name = source_document['metadata']['name']
-            repo.url = source_document['spec']['url']
-
+            repo = GitRepositoryMetaData(name=source_document['metadata']['name'], url=source_document['spec']['url'])
             if "tag" in source_document['spec']['ref']:
                 repo.tag = source_document['spec']['ref']['tag']
             elif "branch" in source_document['spec']['ref']:
