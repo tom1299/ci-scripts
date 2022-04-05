@@ -26,20 +26,24 @@ def get_git_repositories(source_path: str) -> dict:
     repos = {}
     source_files = glob.glob(f"{source_path}/*.yaml")
     for source_file in source_files:
-        with open(source_file, 'r') as source_yaml:
-            source_document = yaml.load(source_yaml, Loader=yaml.FullLoader)
-            if source_document["kind"] == "GitRepository":
-                print(f"Found git repository {source_document['metadata']['name']}")
-                repo = GitRepositoryMetaData()
-                repo.name = source_document['metadata']['name']
-                repo.url = source_document['spec']['url']
-
-                if "tag" in source_document['spec']['ref']:
-                    repo.tag = source_document['spec']['ref']['tag']
-                elif "branch" in source_document['spec']['ref']:
-                    repo.tag = source_document['spec']['ref']['branch']
-                repos[repo.name] = repo
+        add_git_repository(repos, source_file)
     return repos
+
+
+def add_git_repository(repos, source_file):
+    with open(source_file, 'r') as source_yaml:
+        source_document = yaml.load(source_yaml, Loader=yaml.FullLoader)
+        if source_document["kind"] == "GitRepository":
+            print(f"Found git repository {source_document['metadata']['name']}")
+            repo = GitRepositoryMetaData()
+            repo.name = source_document['metadata']['name']
+            repo.url = source_document['spec']['url']
+
+            if "tag" in source_document['spec']['ref']:
+                repo.tag = source_document['spec']['ref']['tag']
+            elif "branch" in source_document['spec']['ref']:
+                repo.tag = source_document['spec']['ref']['branch']
+            repos[repo.name] = repo
 
 
 def get_values(config_map_path: str) -> dict:
