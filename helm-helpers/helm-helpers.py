@@ -15,12 +15,12 @@ class GitRepositoryMetaData:
     tag: str = None
 
 
+@dataclass
 class HelmReleaseMetaData:
-    def __init__(self):
-        self.name: str
-        self.chart: str
-        self.repo: GitRepositoryMetaData
-        self.values: dict
+    name: str = None
+    chart: str = None
+    repo: GitRepositoryMetaData = None
+    values: dict = None
 
 
 def get_git_repositories(source_path: str) -> dict:
@@ -103,11 +103,7 @@ def add_helm_release(helm_releases, repos, values, yaml_document):
     if not chart_values:
         print(f"No values found with name {config_map_name}")
         exit(1)
-    helm_release = HelmReleaseMetaData()
-    helm_release.name = helm_release_name
-    helm_release.chart = helm_chart
-    helm_release.repo = repo
-    helm_release.values = chart_values
+    helm_release = HelmReleaseMetaData(name=helm_release_name, chart=helm_chart, repo=repo, values=chart_values)
     helm_releases.append(helm_release)
 
 
