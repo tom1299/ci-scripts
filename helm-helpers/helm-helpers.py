@@ -71,40 +71,44 @@ def get_helm_releases(helm_release_path: str, repos: dict, values: dict):
     helm_release_files = glob.glob(f"{helm_release_path}/*.yaml")
     helm_releases = []
     for helm_release_file in helm_release_files:
-        with open(helm_release_file, 'r') as chart_yaml:
-            yaml_documents = yaml.load_all(chart_yaml, Loader=yaml.FullLoader)
-            for yaml_document in yaml_documents:
-                if yaml_document["kind"] == "HelmRelease":
-                    print(f"Found helm release {yaml_document['metadata']['name']}")
-                else:
-                    continue
-                helm_release_name = yaml_document['metadata']['name']
-                helm_chart = yaml_document['spec']['chart']['spec']['chart']
-
-                source_ref = yaml_document["spec"]["chart"]["spec"]["sourceRef"]
-                if not source_ref["kind"] == "GitRepository":
-                    print(
-                        f"source reference of helm release {helm_release_name}, {source_ref} is not of kind GitRepository")
-                    exit(1)
-                repo = repos[source_ref["name"]]
-                if not repo:
-                    print(f"No repository found with name {source_ref['name']}")
-                    exit(1)
-
-                # TODO: Check type and size
-                config_map_name = yaml_document["spec"]["valuesFrom"][0]["name"]
-                chart_values = values[config_map_name]
-                if not chart_values:
-                    print(f"No values found with name {config_map_name}")
-                    exit(1)
-
-                helm_release = HelmReleaseMetaData()
-                helm_release.name = helm_release_name
-                helm_release.chart = helm_chart
-                helm_release.repo = repo
-                helm_release.values = chart_values
-                helm_releases.append(helm_release)
+        add_helm_releases(helm_release_file, helm_releases, repos, values)
     return helm_releases
+
+
+def add_helm_releases(helm_release_file, helm_releases, repos, values):
+    with open(helm_release_file, 'r') as chart_yaml:
+        yaml_documents = yaml.load_all(chart_yaml, Loader=yaml.FullLoader)
+        for yaml_document in yaml_documents:
+            if yaml_document["kind"] != "HelmRelease":
+                continue
+            print(f"Found helm release {yaml_document['metadata']['name']}")
+            add_helm_release(helm_releases, repos, values, yaml_document)
+
+
+def add_helm_release(helm_releases, repos, values, yaml_document):
+    helm_release_name = yaml_document['metadata']['name']
+    helm_chart = yaml_document['spec']['chart']['spec']['chart']
+    source_ref = yaml_document["spec"]["chart"]["spec"]["sourceRef"]
+    if not source_ref["kind"] == "GitRepository":
+        print(
+            f"source reference of helm release {helm_release_name}, {source_ref} is not of kind GitRepository")
+        exit(1)
+    repo = repos[source_ref["name"]]
+    if not repo:
+        print(f"No repository found with name {source_ref['name']}")
+        exit(1)
+    # TODO: Check type and size
+    config_map_name = yaml_document["spec"]["valuesFrom"][0]["name"]
+    chart_values = values[config_map_name]
+    if not chart_values:
+        print(f"No values found with name {config_map_name}")
+        exit(1)
+    helm_release = HelmReleaseMetaData()
+    helm_release.name = helm_release_name
+    helm_release.chart = helm_chart
+    helm_release.repo = repo
+    helm_release.values = chart_values
+    helm_releases.append(helm_release)
 
 
 def parse_args():
