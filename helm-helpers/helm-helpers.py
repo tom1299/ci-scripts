@@ -23,6 +23,17 @@ class HelmRelease:
     values: dict = None
 
 
+def create_from_files(folder: str, create_method) -> dict:
+    created_objects = {}
+    yaml_files = glob.glob(f"{folder}/*.yaml")
+    for yaml_file in yaml_files:
+        with open(yaml_file, 'r') as file_content:
+            yaml_doc = yaml.load(file_content, Loader=yaml.FullLoader)
+            created_object = create_method(yaml_doc)
+            created_objects[created_object.name] = created_object
+    return created_objects
+
+
 class GitRepositoryBuilder:
 
     @staticmethod
@@ -32,14 +43,7 @@ class GitRepositoryBuilder:
 
     @staticmethod
     def create_git_repositories(sources_folder: str) -> Dict[str, GitRepository]:
-        git_repos = {}
-        source_files = glob.glob(f"{sources_folder}/*.yaml")
-        for source_file in source_files:
-            with open(source_file, 'r') as source_yaml:
-                yaml_doc = yaml.load(source_yaml, Loader=yaml.FullLoader)
-                git_repo = GitRepositoryBuilder.create(yaml_doc)
-                git_repos[git_repo.name] = git_repo
-        return git_repos
+        return create_from_files(sources_folder, GitRepositoryBuilder.create)
 
     def __init__(self, yaml_doc: dict):
         self.yaml_doc = yaml_doc
