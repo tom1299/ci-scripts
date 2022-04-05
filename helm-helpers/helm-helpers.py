@@ -4,51 +4,67 @@ import glob
 import os
 import shutil
 import subprocess
-
+from typing import Dict
 import yaml
 
 
 @dataclass
-class GitRepositoryMetaData:
+class GitRepository:
     name: str = None
     url: str = None
     tag: str = None
 
 
 @dataclass
-class HelmReleaseMetaData:
+class HelmRelease:
     name: str = None
     chart: str = None
-    repo: GitRepositoryMetaData = None
+    repo: GitRepository = None
     values: dict = None
 
 
-def get_git_repositories(source_path: str) -> dict:
-    repos = {}
-    source_files = glob.glob(f"{source_path}/*.yaml")
-    for source_file in source_files:
-        add_git_repository(repos, source_file)
-    return repos
+class GitRepositoryBuilder:
+
+    @staticmethod
+    def create(yaml_doc: dict) -> GitRepository:
+        builder = GitRepositoryBuilder(yaml_doc)
+        return builder.build()
+
+    @staticmethod
+    def create_git_repositories(sources_folder: str) -> Dict[str, GitRepository]:
+        git_repos = {}
+        source_files = glob.glob(f"{sources_folder}/*.yaml")
+        for source_file in source_files:
+            with open(source_file, 'r') as source_yaml:
+                yaml_doc = yaml.load(source_yaml, Loader=yaml.FullLoader)
+                git_repo = GitRepositoryBuilder.create(yaml_doc)
+                git_repos[git_repo.name] = git_repo
+        return git_repos
+
+    def __init__(self, yaml_doc: dict):
+        self.yaml_doc = yaml_doc
+
+    def is_git_repository(self) -> bool:
+        return self.yaml_doc["kind"] == "GitRepository"
+
+    def build(self) -> GitRepository:
+        if not self.is_git_repository():
+            raise Exception(
+                f"GitRepository can only be created from kind \"GitRepository\". "
+                f"Kind {self.yaml_doc['kind']} is not supported")
+        repo = GitRepository(name=self.yaml_doc['metadata']['name'], url=self.yaml_doc['spec']['url'])
+        repo.tag = self.get_git_repository_tag()
+        return repo
+
+    def get_git_repository_tag(self) -> str:
+        ref = self.yaml_doc['spec']['ref']
+        if "tag" in ref:
+            return ref['tag']
+        elif "branch" in ref:
+            return ref['branch']
 
 
-def add_git_repository(repos, source_file):
-    with open(source_file, 'r') as source_yaml:
-        source_document = yaml.load(source_yaml, Loader=yaml.FullLoader)
-        if source_document["kind"] == "GitRepository":
-            print(f"Found git repository {source_document['metadata']['name']}")
-            repo = GitRepositoryMetaData(name=source_document['metadata']['name'], url=source_document['spec']['url'])
-            repo.tag = get_release_tag(source_document)
-            repos[repo.name] = repo
-
-
-def get_release_tag(source_document) -> str:
-    if "tag" in source_document['spec']['ref']:
-        return source_document['spec']['ref']['tag']
-    elif "branch" in source_document['spec']['ref']:
-        return source_document['spec']['ref']['branch']
-
-
-def get_values(config_map_path: str) -> dict:
+def get_helm_values(config_map_path: str) -> dict:
     values = {}
     config_map_files = glob.glob(f"{config_map_path}/*.yaml")
     for config_map_file in config_map_files:
@@ -90,8 +106,7 @@ def add_helm_release(helm_releases, repos, values, yaml_document):
     helm_chart = yaml_document['spec']['chart']['spec']['chart']
     source_ref = yaml_document["spec"]["chart"]["spec"]["sourceRef"]
     if not source_ref["kind"] == "GitRepository":
-        print(
-            f"source reference of helm release {helm_release_name}, {source_ref} is not of kind GitRepository")
+        print(f"source reference of helm release {helm_release_name}, {source_ref} is not of kind GitRepository")
         exit(1)
     repo = repos[source_ref["name"]]
     if not repo:
@@ -103,7 +118,7 @@ def add_helm_release(helm_releases, repos, values, yaml_document):
     if not chart_values:
         print(f"No values found with name {config_map_name}")
         exit(1)
-    helm_release = HelmReleaseMetaData(name=helm_release_name, chart=helm_chart, repo=repo, values=chart_values)
+    helm_release = HelmRelease(name=helm_release_name, chart=helm_chart, repo=repo, values=chart_values)
     helm_releases.append(helm_release)
 
 
@@ -126,8 +141,8 @@ if __name__ == '__main__':
     helm_release_path = f"{base_path}/helmreleases"
     config_maps_path = f"{base_path}/configmaps"
 
-    repos = get_git_repositories(source_path)
-    values = get_values(config_maps_path)
+    repos = GitRepositoryBuilder.create_git_repositories(sources_folder=source_path)
+    values = get_helm_values(config_maps_path)
 
     try:
         shutil.rmtree(work_dir)
