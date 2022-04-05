@@ -37,27 +37,34 @@ def add_git_repository(repos, source_file):
         if source_document["kind"] == "GitRepository":
             print(f"Found git repository {source_document['metadata']['name']}")
             repo = GitRepositoryMetaData(name=source_document['metadata']['name'], url=source_document['spec']['url'])
-            if "tag" in source_document['spec']['ref']:
-                repo.tag = source_document['spec']['ref']['tag']
-            elif "branch" in source_document['spec']['ref']:
-                repo.tag = source_document['spec']['ref']['branch']
+            repo.tag = get_release_tag(source_document)
             repos[repo.name] = repo
+
+
+def get_release_tag(source_document) -> str:
+    if "tag" in source_document['spec']['ref']:
+        return source_document['spec']['ref']['tag']
+    elif "branch" in source_document['spec']['ref']:
+        return source_document['spec']['ref']['branch']
 
 
 def get_values(config_map_path: str) -> dict:
     values = {}
     config_map_files = glob.glob(f"{config_map_path}/*.yaml")
     for config_map_file in config_map_files:
-        with open(config_map_file, 'r') as config_map_yaml:
-            config_map = yaml.load(config_map_yaml, Loader=yaml.FullLoader)
-            if config_map["kind"] == "ConfigMap":
-                print(f"Found config map {config_map['metadata']['name']}")
-
-            if "values.yaml" not in config_map["data"]:
-                print(f"config map {config_map['metadata']['name']} does not contain 'values.yaml' node")
-                continue
-            values[config_map['metadata']['name']] = config_map["data"]["values.yaml"]
+        add_helm_values(config_map_file, values)
     return values
+
+
+def add_helm_values(config_map_file, values):
+    with open(config_map_file, 'r') as config_map_yaml:
+        config_map = yaml.load(config_map_yaml, Loader=yaml.FullLoader)
+
+        if "values.yaml" not in config_map["data"]:
+            print(f"config map {config_map['metadata']['name']} does not contain 'values.yaml' node")
+            return
+
+        values[config_map['metadata']['name']] = config_map["data"]["values.yaml"]
 
 
 def get_helm_releases(helm_release_path: str, repos: dict, values: dict):
