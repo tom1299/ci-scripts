@@ -23,14 +23,16 @@ class HelmRelease:
     values: dict = None
 
 
-def create_from_files(folder: str, create_method) -> dict:
+def create_from_files(folder: str, create_method, **kwargs) -> dict:
     created_objects = {}
     yaml_files = glob.glob(f"{folder}/*.yaml")
     for yaml_file in yaml_files:
         with open(yaml_file, 'r') as file_content:
-            yaml_doc = yaml.load(file_content, Loader=yaml.FullLoader)
-            created_object = create_method(yaml_doc)
-            created_objects[created_object.name] = created_object
+            yaml_docs = yaml.load_all(file_content, Loader=yaml.FullLoader)
+            for yaml_doc in yaml_docs:
+                created_object = create_method(yaml_doc, **kwargs)
+                if created_object:
+                    created_objects[created_object.name] = created_object
     return created_objects
 
 
@@ -53,9 +55,8 @@ class GitRepositoryBuilder:
 
     def build(self) -> GitRepository:
         if not self.is_git_repository():
-            raise Exception(
-                f"GitRepository can only be created from kind \"GitRepository\". "
-                f"Kind {self.yaml_doc['kind']} is not supported")
+            raise Exception(f"GitRepository can only be created from kind \"GitRepository\". "
+                            f"Kind {self.yaml_doc['kind']} is not supported")
         repo = GitRepository(name=self.yaml_doc['metadata']['name'], url=self.yaml_doc['spec']['url'])
         repo.tag = self.get_git_repository_tag()
         return repo
@@ -66,6 +67,50 @@ class GitRepositoryBuilder:
             return ref['tag']
         elif "branch" in ref:
             return ref['branch']
+
+
+class HelmReleaseBuilder:
+
+    @staticmethod
+    def create(yaml_doc: dict, git_repositories, config_values) -> HelmRelease:
+        builder = HelmReleaseBuilder(yaml_doc, git_repositories, config_values)
+        return builder.build()
+
+    @staticmethod
+    def create_helm_releases(sources_folder: str, git_repositories: Dict[str, GitRepository],
+                             config_values: Dict[str, dict]) -> [HelmRelease]:
+        return create_from_files(sources_folder, HelmReleaseBuilder.create, git_repositories=git_repositories,
+                                 config_values=config_values)
+
+    def __init__(self, yaml_doc: dict, git_repositories, config_values):
+        self.yaml_doc = yaml_doc
+        self.git_repositories = git_repositories
+        self.config_values = config_values
+
+    def build(self) -> HelmRelease:
+        if not self.is_helm_release():
+            return
+
+        helm_release_name = self.yaml_doc['metadata']['name']
+        helm_chart = self.yaml_doc['spec']['chart']['spec']['chart']
+        source_ref = self.yaml_doc["spec"]["chart"]["spec"]["sourceRef"]
+        if source_ref["kind"] != "GitRepository":
+            print(f"source reference of helm release {helm_release_name}, {source_ref} is not of kind GitRepository")
+            return
+        repo = repos[source_ref["name"]]
+        if not repo:
+            print(f"No repository found with name {source_ref['name']}")
+            exit(1)
+        # TODO: Check type and size
+        config_map_name = self.yaml_doc["spec"]["valuesFrom"][0]["name"]
+        chart_values = values[config_map_name]
+        if not chart_values:
+            print(f"No values found with name {config_map_name}")
+            return
+        return HelmRelease(name=helm_release_name, chart=helm_chart, repo=repo, values=chart_values)
+
+    def is_helm_release(self) -> bool:
+        return self.yaml_doc["kind"] == "HelmRelease"
 
 
 def get_helm_values(config_map_path: str) -> dict:
@@ -85,45 +130,6 @@ def add_helm_values(config_map_file, values):
             return
 
         values[config_map['metadata']['name']] = config_map["data"]["values.yaml"]
-
-
-def get_helm_releases(helm_release_path: str, repos: dict, values: dict):
-    helm_release_files = glob.glob(f"{helm_release_path}/*.yaml")
-    helm_releases = []
-    for helm_release_file in helm_release_files:
-        add_helm_releases(helm_release_file, helm_releases, repos, values)
-    return helm_releases
-
-
-def add_helm_releases(helm_release_file, helm_releases, repos, values):
-    with open(helm_release_file, 'r') as chart_yaml:
-        yaml_documents = yaml.load_all(chart_yaml, Loader=yaml.FullLoader)
-        for yaml_document in yaml_documents:
-            if yaml_document["kind"] != "HelmRelease":
-                continue
-            print(f"Found helm release {yaml_document['metadata']['name']}")
-            add_helm_release(helm_releases, repos, values, yaml_document)
-
-
-def add_helm_release(helm_releases, repos, values, yaml_document):
-    helm_release_name = yaml_document['metadata']['name']
-    helm_chart = yaml_document['spec']['chart']['spec']['chart']
-    source_ref = yaml_document["spec"]["chart"]["spec"]["sourceRef"]
-    if not source_ref["kind"] == "GitRepository":
-        print(f"source reference of helm release {helm_release_name}, {source_ref} is not of kind GitRepository")
-        exit(1)
-    repo = repos[source_ref["name"]]
-    if not repo:
-        print(f"No repository found with name {source_ref['name']}")
-        exit(1)
-    # TODO: Check type and size
-    config_map_name = yaml_document["spec"]["valuesFrom"][0]["name"]
-    chart_values = values[config_map_name]
-    if not chart_values:
-        print(f"No values found with name {config_map_name}")
-        exit(1)
-    helm_release = HelmRelease(name=helm_release_name, chart=helm_chart, repo=repo, values=chart_values)
-    helm_releases.append(helm_release)
 
 
 def parse_args():
@@ -154,7 +160,7 @@ if __name__ == '__main__':
         pass
     os.mkdir(work_dir)
 
-    helm_releases = get_helm_releases(helm_release_path, repos, values)
+    helm_releases = HelmReleaseBuilder.create_helm_releases(helm_release_path, repos, values)
 
     if not helm_releases:
         print(f"No helm releases found in {helm_release_path}")
@@ -162,7 +168,7 @@ if __name__ == '__main__':
 
     helm_output_dir = work_dir + "/generated"
     os.mkdir(helm_output_dir)
-    for helm_release in helm_releases:
+    for helm_release in helm_releases.values():
         repo_dir = f"{work_dir}/{helm_release.repo.name}"
         subprocess.run(
             ['git', 'clone', '--depth', '1', '--branch', helm_release.repo.tag, helm_release.repo.url, repo_dir])
