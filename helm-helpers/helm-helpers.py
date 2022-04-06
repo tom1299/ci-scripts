@@ -2,6 +2,7 @@ import argparse
 from dataclasses import dataclass
 import glob
 import os
+import re
 import shutil
 import subprocess
 from typing import Dict
@@ -23,11 +24,12 @@ class HelmRelease:
     values: dict = None
 
 
-# TODO: Make this function to work with arrays as well
 def find(element, dictionary):
     keys = element.split('.')
     rv = dictionary
     for key in keys:
+        if re.search('\\[\\d+\\]', key):
+            key = int(re.search('\\d+', key).group())
         rv = rv[key]
     return rv
 
@@ -66,12 +68,12 @@ class GitRepositoryBuilder:
         if not self.is_git_repository():
             raise Exception(f"GitRepository can only be created from kind \"GitRepository\". "
                             f"Kind {self.yaml_doc['kind']} is not supported")
-        repo = GitRepository(name=self.yaml_doc['metadata']['name'], url=self.yaml_doc['spec']['url'])
+        repo = GitRepository(name=find("metadata.name", self.yaml_doc), url=find("spec.url", self.yaml_doc))
         repo.tag = self.get_git_repository_tag()
         return repo
 
     def get_git_repository_tag(self) -> str:
-        ref = self.yaml_doc['spec']['ref']
+        ref = find("spec.ref", self.yaml_doc)
         if "tag" in ref:
             return ref['tag']
         elif "branch" in ref:
@@ -122,7 +124,7 @@ class HelmReleaseBuilder:
         return find("spec.chart.spec.sourceRef.kind", self.yaml_doc) == "GitRepository"
 
     def get_config_values(self):
-        config_map_name = self.yaml_doc["spec"]["valuesFrom"][0]["name"]
+        config_map_name = find("spec.valuesFrom.[0].name", self.yaml_doc)
         return values[config_map_name]
 
 
