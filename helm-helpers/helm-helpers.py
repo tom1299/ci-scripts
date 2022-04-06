@@ -23,6 +23,15 @@ class HelmRelease:
     values: dict = None
 
 
+# TODO: Make this function to work with arrays as well
+def find(element, dictionary):
+    keys = element.split('.')
+    rv = dictionary
+    for key in keys:
+        rv = rv[key]
+    return rv
+
+
 def create_from_files(folder: str, create_method, **kwargs) -> dict:
     created_objects = {}
     yaml_files = glob.glob(f"{folder}/*.yaml")
@@ -90,27 +99,31 @@ class HelmReleaseBuilder:
     def build(self) -> HelmRelease:
         if not self.is_helm_release():
             return
+        return HelmRelease(name=self.get_helm_release_name(), chart=self.get_helm_chart_name(), repo=self.get_repo(),
+                           values=self.get_config_values())
 
-        helm_release_name = self.yaml_doc['metadata']['name']
-        helm_chart = self.yaml_doc['spec']['chart']['spec']['chart']
-        source_ref = self.yaml_doc["spec"]["chart"]["spec"]["sourceRef"]
-        if source_ref["kind"] != "GitRepository":
-            print(f"source reference of helm release {helm_release_name}, {source_ref} is not of kind GitRepository")
+    def get_helm_release_name(self):
+        return find("metadata.name", self.yaml_doc)
+
+    def get_helm_chart_name(self):
+        return find("spec.chart.spec.chart", self.yaml_doc)
+
+    def get_repo(self) -> GitRepository:
+        source_ref_name = find("spec.chart.spec.sourceRef.name", self.yaml_doc)
+        if not self.is_source_ref_git_repository():
             return
-        repo = repos[source_ref["name"]]
-        if not repo:
-            print(f"No repository found with name {source_ref['name']}")
-            exit(1)
-        # TODO: Check type and size
-        config_map_name = self.yaml_doc["spec"]["valuesFrom"][0]["name"]
-        chart_values = values[config_map_name]
-        if not chart_values:
-            print(f"No values found with name {config_map_name}")
-            return
-        return HelmRelease(name=helm_release_name, chart=helm_chart, repo=repo, values=chart_values)
+        repo = repos[source_ref_name]
+        return repo
 
     def is_helm_release(self) -> bool:
         return self.yaml_doc["kind"] == "HelmRelease"
+
+    def is_source_ref_git_repository(self) -> bool:
+        return find("spec.chart.spec.sourceRef.kind", self.yaml_doc) == "GitRepository"
+
+    def get_config_values(self):
+        config_map_name = self.yaml_doc["spec"]["valuesFrom"][0]["name"]
+        return values[config_map_name]
 
 
 def get_helm_values(config_map_path: str) -> dict:
