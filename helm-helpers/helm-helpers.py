@@ -31,7 +31,7 @@ class HelmConfigValues:
 
 
 def find(element, dictionary):
-    keys = element.split('.')
+    keys = element.split('/')
     rv = dictionary
     for key in keys:
         if re.search('[\d+]', key):
@@ -74,12 +74,12 @@ class GitRepositoryBuilder():
         if not self.is_git_repository():
             raise Exception(f"GitRepository can only be created from kind \"GitRepository\". "
                             f"Kind {self.yaml_doc['kind']} is not supported")
-        repo = GitRepository(name=find("metadata.name", self.yaml_doc), url=find("spec.url", self.yaml_doc))
+        repo = GitRepository(name=find("metadata/name", self.yaml_doc), url=find("spec/url", self.yaml_doc))
         repo.tag = self.get_git_repository_tag()
         return repo
 
     def get_git_repository_tag(self) -> str:
-        ref = find("spec.ref", self.yaml_doc)
+        ref = find("spec/ref", self.yaml_doc)
         if "tag" in ref:
             return ref['tag']
         elif "branch" in ref:
@@ -111,13 +111,13 @@ class HelmReleaseBuilder:
                            values=self.get_config_values())
 
     def get_helm_release_name(self):
-        return find("metadata.name", self.yaml_doc)
+        return find("metadata/name", self.yaml_doc)
 
     def get_helm_chart_name(self):
-        return find("spec.chart.spec.chart", self.yaml_doc)
+        return find("spec/chart/spec/chart", self.yaml_doc)
 
     def get_repo(self) -> GitRepository:
-        source_ref_name = find("spec.chart.spec.sourceRef.name", self.yaml_doc)
+        source_ref_name = find("spec/chart/spec/sourceRef/name", self.yaml_doc)
         if not self.is_source_ref_git_repository():
             return
         repo = repos[source_ref_name]
@@ -127,10 +127,10 @@ class HelmReleaseBuilder:
         return self.yaml_doc["kind"] == "HelmRelease"
 
     def is_source_ref_git_repository(self) -> bool:
-        return find("spec.chart.spec.sourceRef.kind", self.yaml_doc) == "GitRepository"
+        return find("spec/chart/spec/sourceRef/kind", self.yaml_doc) == "GitRepository"
 
     def get_config_values(self):
-        config_map_name = find("spec.valuesFrom.[0].name", self.yaml_doc)
+        config_map_name = find("spec/valuesFrom/[0]/name", self.yaml_doc)
         return values[config_map_name]
 
 
@@ -151,7 +151,7 @@ class HelmConfigValuesBuilder:
     def build(self) -> dict:
         if "values.yaml" not in self.yaml_doc["data"]:
             return
-        return HelmConfigValues(find("metadata.name", self.yaml_doc), find("data", self.yaml_doc)["values.yaml"])
+        return HelmConfigValues(find("metadata/name", self.yaml_doc), find("data/values.yaml", self.yaml_doc))
 
 
 def get_helm_values(config_map_path: str) -> dict:
