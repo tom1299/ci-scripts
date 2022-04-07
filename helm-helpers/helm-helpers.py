@@ -24,12 +24,18 @@ class HelmRelease:
     values: dict = None
 
 
+@dataclass
+class HelmConfigValues:
+    name: str = None
+    values: dict = None
+
+
 def find(element, dictionary):
     keys = element.split('.')
     rv = dictionary
     for key in keys:
-        if re.search('\\[\\d+\\]', key):
-            key = int(re.search('\\d+', key).group())
+        if re.search('[\d+]', key):
+            key = int(re.search('\d+', key).group())
         rv = rv[key]
     return rv
 
@@ -47,7 +53,7 @@ def create_from_files(folder: str, create_method, **kwargs) -> dict:
     return created_objects
 
 
-class GitRepositoryBuilder:
+class GitRepositoryBuilder():
 
     @staticmethod
     def create(yaml_doc: dict) -> GitRepository:
@@ -128,6 +134,26 @@ class HelmReleaseBuilder:
         return values[config_map_name]
 
 
+class HelmConfigValuesBuilder:
+
+    @staticmethod
+    def create(yaml_doc: dict) -> HelmConfigValues:
+        builder = HelmConfigValuesBuilder(yaml_doc)
+        return builder.build()
+
+    @staticmethod
+    def create_config_values(sources_folder: str) -> dict:
+        return create_from_files(sources_folder, HelmConfigValuesBuilder.create)
+
+    def __init__(self, yaml_doc: dict):
+        self.yaml_doc = yaml_doc
+
+    def build(self) -> dict:
+        if "values.yaml" not in self.yaml_doc["data"]:
+            return
+        return HelmConfigValues(find("metadata.name", self.yaml_doc), find("data", self.yaml_doc)["values.yaml"])
+
+
 def get_helm_values(config_map_path: str) -> dict:
     values = {}
     config_map_files = glob.glob(f"{config_map_path}/*.yaml")
@@ -167,7 +193,7 @@ if __name__ == '__main__':
     config_maps_path = f"{base_path}/configmaps"
 
     repos = GitRepositoryBuilder.create_git_repositories(sources_folder=source_path)
-    values = get_helm_values(config_maps_path)
+    values = HelmConfigValuesBuilder.create_config_values(config_maps_path)
 
     try:
         shutil.rmtree(work_dir)
@@ -190,7 +216,7 @@ if __name__ == '__main__':
 
         value_file_name = f'{work_dir}/{helm_release.name}-values.yaml'
         with open(value_file_name, 'w') as value_file:
-            value_file.write(helm_release.values)
+            value_file.write(helm_release.values.values)
 
         chart_dir = repo_dir + "/" + helm_release.chart
         chart_target = helm_output_dir + "/" + helm_release.name + ".yaml"
