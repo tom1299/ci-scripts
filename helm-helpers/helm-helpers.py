@@ -5,7 +5,7 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Dict
+
 import yaml
 
 
@@ -40,29 +40,21 @@ def find(element, dictionary):
     return rv
 
 
-def create_from_files(folder: str, create_method, **kwargs) -> dict:
+def create_from_files(folder: str, clazz, *args) -> dict:
     created_objects = {}
     yaml_files = glob.glob(f"{folder}/*.yaml")
     for yaml_file in yaml_files:
         with open(yaml_file, 'r') as file_content:
             yaml_docs = yaml.load_all(file_content, Loader=yaml.FullLoader)
             for yaml_doc in yaml_docs:
-                created_object = create_method(yaml_doc, **kwargs)
+                builder = clazz(yaml_doc, *args)
+                created_object = builder.build()
                 if created_object:
                     created_objects[created_object.name] = created_object
     return created_objects
 
 
-class GitRepositoryBuilder():
-
-    @staticmethod
-    def create(yaml_doc: dict) -> GitRepository:
-        builder = GitRepositoryBuilder(yaml_doc)
-        return builder.build()
-
-    @staticmethod
-    def create_git_repositories(sources_folder: str) -> Dict[str, GitRepository]:
-        return create_from_files(sources_folder, GitRepositoryBuilder.create)
+class GitRepositoryBuilder:
 
     def __init__(self, yaml_doc: dict):
         self.yaml_doc = yaml_doc
@@ -88,23 +80,12 @@ class GitRepositoryBuilder():
 
 class HelmReleaseBuilder:
 
-    @staticmethod
-    def create(yaml_doc: dict, git_repositories, config_values) -> HelmRelease:
-        builder = HelmReleaseBuilder(yaml_doc, git_repositories, config_values)
-        return builder.build()
-
-    @staticmethod
-    def create_helm_releases(sources_folder: str, git_repositories: Dict[str, GitRepository],
-                             config_values: Dict[str, dict]) -> [HelmRelease]:
-        return create_from_files(sources_folder, HelmReleaseBuilder.create, git_repositories=git_repositories,
-                                 config_values=config_values)
-
     def __init__(self, yaml_doc: dict, git_repositories, config_values):
         self.yaml_doc = yaml_doc
         self.git_repositories = git_repositories
         self.config_values = config_values
 
-    def build(self) -> HelmRelease:
+    def build(self) -> HelmRelease | None:
         if not self.is_helm_release():
             return
         return HelmRelease(name=self.get_helm_release_name(), chart=self.get_helm_chart_name(), repo=self.get_repo(),
@@ -116,7 +97,7 @@ class HelmReleaseBuilder:
     def get_helm_chart_name(self):
         return find("spec/chart/spec/chart", self.yaml_doc)
 
-    def get_repo(self) -> GitRepository:
+    def get_repo(self) -> GitRepository | None:
         source_ref_name = find("spec/chart/spec/sourceRef/name", self.yaml_doc)
         if not self.is_source_ref_git_repository():
             return
@@ -136,41 +117,13 @@ class HelmReleaseBuilder:
 
 class HelmConfigValuesBuilder:
 
-    @staticmethod
-    def create(yaml_doc: dict) -> HelmConfigValues:
-        builder = HelmConfigValuesBuilder(yaml_doc)
-        return builder.build()
-
-    @staticmethod
-    def create_config_values(sources_folder: str) -> dict:
-        return create_from_files(sources_folder, HelmConfigValuesBuilder.create)
-
     def __init__(self, yaml_doc: dict):
         self.yaml_doc = yaml_doc
 
-    def build(self) -> dict:
+    def build(self) -> HelmConfigValues | None:
         if "values.yaml" not in self.yaml_doc["data"]:
             return
         return HelmConfigValues(find("metadata/name", self.yaml_doc), find("data/values.yaml", self.yaml_doc))
-
-
-def get_helm_values(config_map_path: str) -> dict:
-    values = {}
-    config_map_files = glob.glob(f"{config_map_path}/*.yaml")
-    for config_map_file in config_map_files:
-        add_helm_values(config_map_file, values)
-    return values
-
-
-def add_helm_values(config_map_file, values):
-    with open(config_map_file, 'r') as config_map_yaml:
-        config_map = yaml.load(config_map_yaml, Loader=yaml.FullLoader)
-
-        if "values.yaml" not in config_map["data"]:
-            print(f"config map {config_map['metadata']['name']} does not contain 'values.yaml' node")
-            return
-
-        values[config_map['metadata']['name']] = config_map["data"]["values.yaml"]
 
 
 def parse_args():
@@ -179,8 +132,16 @@ def parse_args():
                         help='Path to folder containing the flux manifests')
     parser.add_argument('--work-dir', '-w', nargs='?', dest="work_dir", required=True, help='Path to working directory')
 
-    args = parser.parse_args()
-    return args
+    arguments = parser.parse_args()
+    return arguments
+
+
+def clean_working_dir():
+    try:
+        shutil.rmtree(work_dir)
+    except FileNotFoundError:
+        pass
+    os.mkdir(work_dir)
 
 
 if __name__ == '__main__':
@@ -191,23 +152,19 @@ if __name__ == '__main__':
     source_path = f"{base_path}/sources"
     helm_release_path = f"{base_path}/helmreleases"
     config_maps_path = f"{base_path}/configmaps"
+    helm_output_dir = work_dir + "/generated"
 
-    repos = GitRepositoryBuilder.create_git_repositories(sources_folder=source_path)
-    values = HelmConfigValuesBuilder.create_config_values(config_maps_path)
+    repos = create_from_files(source_path, GitRepositoryBuilder)
+    values = create_from_files(config_maps_path, HelmConfigValuesBuilder)
 
-    try:
-        shutil.rmtree(work_dir)
-    except FileNotFoundError:
-        pass
-    os.mkdir(work_dir)
-
-    helm_releases = HelmReleaseBuilder.create_helm_releases(helm_release_path, repos, values)
+    helm_releases = create_from_files(helm_release_path, HelmReleaseBuilder, repos, values)
 
     if not helm_releases:
         print(f"No helm releases found in {helm_release_path}")
         exit(1)
 
-    helm_output_dir = work_dir + "/generated"
+    clean_working_dir()
+
     os.mkdir(helm_output_dir)
     for helm_release in helm_releases.values():
         repo_dir = f"{work_dir}/{helm_release.repo.name}"
