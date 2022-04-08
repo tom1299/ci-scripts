@@ -138,47 +138,47 @@ def parse_args():
 
 def clean_working_dir():
     try:
-        shutil.rmtree(work_dir)
+        shutil.rmtree(working_dir)
     except FileNotFoundError:
         pass
-    os.mkdir(work_dir)
+    os.mkdir(working_dir)
 
 
 if __name__ == '__main__':
     args = parse_args()
 
     base_path = args.base_path
-    work_dir = args.work_dir
-    source_path = f"{base_path}/sources"
-    helm_release_path = f"{base_path}/helmreleases"
-    config_maps_path = f"{base_path}/configmaps"
-    helm_output_dir = work_dir + "/generated"
+    working_dir = args.work_dir
+    path_to_git_repos = f"{base_path}/sources"
+    path_to_helm_releases = f"{base_path}/helmreleases"
+    path_to_config_maps = f"{base_path}/configmaps"
+    output_dir = working_dir + "/generated"
 
-    repos = create_from_files(source_path, GitRepositoryBuilder)
-    values = create_from_files(config_maps_path, HelmConfigValuesBuilder)
+    repos = create_from_files(path_to_git_repos, GitRepositoryBuilder)
+    values = create_from_files(path_to_config_maps, HelmConfigValuesBuilder)
 
-    helm_releases = create_from_files(helm_release_path, HelmReleaseBuilder, repos, values)
+    helm_releases = create_from_files(path_to_helm_releases, HelmReleaseBuilder, repos, values)
 
     if not helm_releases:
-        print(f"No helm releases found in {helm_release_path}")
+        print(f"No helm releases found in {path_to_helm_releases}")
         exit(1)
 
     clean_working_dir()
 
-    os.mkdir(helm_output_dir)
+    os.mkdir(output_dir)
     for helm_release in helm_releases.values():
-        repo_dir = f"{work_dir}/{helm_release.repo.name}"
+        git_clone_target_folder = f"{working_dir}/{helm_release.repo.name}"
         subprocess.run(
-            ['git', 'clone', '--depth', '1', '--branch', helm_release.repo.tag, helm_release.repo.url, repo_dir])
+            ['git', 'clone', '--depth', '1', '--branch', helm_release.repo.tag, helm_release.repo.url, git_clone_target_folder])
 
-        value_file_name = f'{work_dir}/{helm_release.name}-values.yaml'
-        with open(value_file_name, 'w') as value_file:
+        release_value_file_name = f'{working_dir}/{helm_release.name}-values.yaml'
+        with open(release_value_file_name, 'w') as value_file:
             value_file.write(helm_release.values.values)
 
-        chart_dir = repo_dir + "/" + helm_release.chart
-        chart_target = helm_output_dir + "/" + helm_release.name + ".yaml"
-        with open(chart_target, "w") as helm_output:
-            subprocess.run(['helm', '-f', value_file_name, 'template', '--debug', chart_dir], stdout=helm_output)
+        path_to_chart = git_clone_target_folder + "/" + helm_release.chart
+        generated_manifests_file = output_dir + "/" + helm_release.name + ".yaml"
+        with open(generated_manifests_file, "w") as helm_output:
+            subprocess.run(['helm', '-f', release_value_file_name, 'template', '--debug', path_to_chart], stdout=helm_output)
 
-        assert os.path.exists(chart_target)
-        assert os.path.getsize(chart_target) > 100
+        assert os.path.exists(generated_manifests_file)
+        assert os.path.getsize(generated_manifests_file) > 100
