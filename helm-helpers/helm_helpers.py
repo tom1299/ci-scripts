@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 from typing import Dict
-
 import yaml
 
 
@@ -16,7 +15,8 @@ class GitRepository:
     url: str = None
     tag: str = None
 
-    def __hash__(self): return hash(self.__class__.__name__ + self.name)
+    def __hash__(self):
+        return hash(self.__class__.__name__ + self.name)
 
 
 @dataclass
@@ -24,7 +24,8 @@ class HelmConfigValues:
     name: str = None
     values: str = None
 
-    def __hash__(self): return hash(self.__class__.name + self.name)
+    def __hash__(self):
+        return hash(self.__class__.name + self.name)
 
 
 @dataclass
@@ -36,19 +37,20 @@ class HelmRelease:
     values: HelmConfigValues = None
     values_config_map_name: str = None
 
-    def __hash__(self): return hash(self.__class__.name + self.name)
+    def __hash__(self):
+        return hash(self.__class__.name + self.name)
 
 
 def find(element, dictionary):
     keys = element.split('/')
-    rv = dictionary
+    current_dictionary = dictionary
     for key in keys:
-        if re.search('[\d+]', key):
-            key = int(re.search('\d+', key).group())
-        elif key not in rv.keys():
+        if re.search(r'[\d+]', key):
+            key = int(re.search(r'\d+', key).group())
+        elif key not in current_dictionary.keys():
             return None
-        rv = rv[key]
-    return rv
+        current_dictionary = current_dictionary[key]
+    return current_dictionary
 
 
 def clean_working_dir():
@@ -69,8 +71,7 @@ def get_git_repository_tag(yaml_block) -> str:
     ref = find("spec/ref", yaml_block)
     if "tag" in ref:
         return ref['tag']
-    elif "branch" in ref:
-        return ref['branch']
+    return ref['branch']
 
 
 def build_helm_release(yaml_block) -> HelmRelease:
@@ -113,11 +114,11 @@ def create_flux_objects_from_files(glob_pattern) -> Dict[str, object]:
 
 
 def compose_helm_releases(flux_objects):
-    for hr in {name: flux_object for name, flux_object in flux_objects.items() if
-               isinstance(flux_object, HelmRelease)}.values():  # type: HelmRelease
-        hr.repo = flux_objects[GitRepository.__name__ + "/" + hr.repo_name]
-        hr.values = flux_objects[HelmConfigValues.__name__ + "/" + hr.values_config_map_name]
-        yield hr
+    for release in {name: flux_object for name, flux_object in flux_objects.items() if
+                    isinstance(flux_object, HelmRelease)}.values():  # type: HelmRelease
+        release.repo = flux_objects[GitRepository.__name__ + "/" + release.repo_name]
+        release.values = flux_objects[HelmConfigValues.__name__ + "/" + release.values_config_map_name]
+        yield release
 
 
 def parse_args():
@@ -140,15 +141,15 @@ if __name__ == '__main__':
     path_to_config_maps = f"{base_path}/configmaps"
     output_dir = working_dir + "/generated"
 
-    flux_objects = create_flux_objects_from_files(f"{base_path}/**/*.yaml")
+    all_flux_objects = create_flux_objects_from_files(f"{base_path}/**/*.yaml")
 
     clean_working_dir()
     os.mkdir(output_dir)
 
-    for helm_release in compose_helm_releases(flux_objects):
+    for helm_release in compose_helm_releases(all_flux_objects):
         git_clone_target_folder = f"{working_dir}/{helm_release.repo.name}"
         subprocess.run(['git', 'clone', '--depth', '1', '--branch', helm_release.repo.tag, helm_release.repo.url,
-                        git_clone_target_folder])
+                        git_clone_target_folder], check=True)
 
         release_value_file_name = f'{working_dir}/{helm_release.name}-values.yaml'
         with open(release_value_file_name, 'w') as value_file:
@@ -158,7 +159,7 @@ if __name__ == '__main__':
         generated_manifests_file = output_dir + "/" + helm_release.name + ".yaml"
         with open(generated_manifests_file, "w") as helm_output:
             subprocess.run(['helm', '-f', release_value_file_name, 'template', '--debug', path_to_chart],
-                           stdout=helm_output)
+                           stdout=helm_output, check=True)
 
         assert os.path.exists(generated_manifests_file)
         assert os.path.getsize(generated_manifests_file) > 100
