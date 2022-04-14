@@ -9,36 +9,39 @@ from typing import Dict
 import yaml
 
 
+def to_string(obj):
+    return obj.__class__.__name__ + "/" + obj.name
+
+
 @dataclass
-class GitRepository:
+class FluxObject:
     name: str = None
+
+    def __str__(self):
+        return to_string(self)
+
+    def __hash__(self):
+        return hash(self.__str__())
+
+
+@dataclass
+class GitRepository(FluxObject):
     url: str = None
     tag: str = None
 
-    def __hash__(self):
-        return hash(self.__class__.__name__ + self.name)
-
 
 @dataclass
-class HelmConfigValues:
-    name: str = None
+class HelmConfigValues(FluxObject):
     values: str = None
 
-    def __hash__(self):
-        return hash(self.__class__.name + self.name)
-
 
 @dataclass
-class HelmRelease:
-    name: str = None
+class HelmRelease(FluxObject):
     chart: str = None
     repo: GitRepository = None
     repo_name: str = None
     values: HelmConfigValues = None
     values_config_map_name: str = None
-
-    def __hash__(self):
-        return hash(self.__class__.name + self.name)
 
 
 def find(element, dictionary):
@@ -51,14 +54,6 @@ def find(element, dictionary):
             return None
         current_dictionary = current_dictionary[key]
     return current_dictionary
-
-
-def clean_working_dir():
-    try:
-        shutil.rmtree(working_dir)
-    except FileNotFoundError:
-        pass
-    os.mkdir(working_dir)
 
 
 def build_git_repository(yaml_block) -> GitRepository:
@@ -96,21 +91,25 @@ def create_flux_objects_from_files(glob_pattern) -> Dict[str, object]:
     for file in files:
         with open(file, 'r') as file_stream:
             yaml_docs = yaml.load_all(file_stream, Loader=yaml.FullLoader)
-            for yaml_doc in yaml_docs:
-                kind = find("kind", yaml_doc)
-                if not kind:
-                    print(f"Could not determine kind from {yaml_doc!s:200.200}...")
-                    continue
-                if kind not in kind2Builder.keys():
-                    print(f"Could not find builder for kind {kind} in {yaml_doc!s:200.200}...")
-                    continue
-                builder = kind2Builder[kind]
-                flux_object = builder(yaml_doc)
-                if not flux_object:
-                    print(f"Could not build flux object from {yaml_doc!s:200.200}...")
-                else:
-                    created_objects[flux_object.__class__.__name__ + "/" + flux_object.name] = flux_object
+            create_flux_objects_from_yaml_doc(created_objects, yaml_docs)
     return created_objects
+
+
+def create_flux_objects_from_yaml_doc(created_objects, yaml_docs):
+    for yaml_doc in yaml_docs:
+        kind = find("kind", yaml_doc)
+        if not kind:
+            print(f"Could not determine kind from {yaml_doc!s:200.200}...")
+            continue
+        if kind not in kind2Builder.keys():
+            print(f"Could not find builder for kind {kind} in {yaml_doc!s:200.200}...")
+            continue
+        builder = kind2Builder[kind]
+        flux_object = builder(yaml_doc)
+        if not flux_object:
+            print(f"Could not build flux object from {yaml_doc!s:200.200}...")
+        else:
+            created_objects[str(flux_object)] = flux_object
 
 
 def compose_helm_releases(flux_objects):
@@ -131,6 +130,14 @@ def parse_args():
     return arguments
 
 
+def recreate_working_dir():
+    try:
+        shutil.rmtree(working_dir)
+    except FileNotFoundError:
+        pass
+    os.mkdir(working_dir)
+
+
 if __name__ == '__main__':
     args = parse_args()
 
@@ -143,7 +150,7 @@ if __name__ == '__main__':
 
     all_flux_objects = create_flux_objects_from_files(f"{base_path}/**/*.yaml")
 
-    clean_working_dir()
+    recreate_working_dir()
     os.mkdir(output_dir)
 
     for helm_release in compose_helm_releases(all_flux_objects):
