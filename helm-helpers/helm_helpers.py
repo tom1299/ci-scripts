@@ -13,6 +13,18 @@ def to_string(obj):
     return obj.__class__.__name__ + "/" + obj.name
 
 
+def find(element, dictionary):
+    keys = element.split('/')
+    current_dictionary = dictionary
+    for key in keys:
+        if re.search(r'[\d+]', key):
+            key = int(re.search(r'\d+', key).group())
+        elif key not in current_dictionary.keys():
+            return None
+        current_dictionary = current_dictionary[key]
+    return current_dictionary
+
+
 @dataclass
 class FluxObject:
     name: str = None
@@ -44,18 +56,6 @@ class HelmRelease(FluxObject):
     values_config_map_name: str = None
 
 
-def find(element, dictionary):
-    keys = element.split('/')
-    current_dictionary = dictionary
-    for key in keys:
-        if re.search(r'[\d+]', key):
-            key = int(re.search(r'\d+', key).group())
-        elif key not in current_dictionary.keys():
-            return None
-        current_dictionary = current_dictionary[key]
-    return current_dictionary
-
-
 def build_git_repository(yaml_block) -> GitRepository:
     repo = GitRepository(name=find("metadata/name", yaml_block), url=find("spec/url", yaml_block))
     repo.tag = get_git_repository_tag(yaml_block)
@@ -81,7 +81,7 @@ def build_helm_values(yaml_block) -> HelmConfigValues | None:
     return HelmConfigValues(find("metadata/name", yaml_block), find("data/values.yaml", yaml_block))
 
 
-kind2Builder = {"GitRepository": build_git_repository, "HelmRelease": build_helm_release,
+Kind2Builder = {"GitRepository": build_git_repository, "HelmRelease": build_helm_release,
                 "ConfigMap": build_helm_values}
 
 
@@ -100,16 +100,19 @@ def create_flux_objects_from_yaml_doc(created_objects, yaml_docs):
         kind = find("kind", yaml_doc)
         if not kind:
             print(f"Could not determine kind from {yaml_doc!s:200.200}...")
-            continue
-        if kind not in kind2Builder.keys():
+        elif kind not in Kind2Builder.keys():
             print(f"Could not find builder for kind {kind} in {yaml_doc!s:200.200}...")
-            continue
-        builder = kind2Builder[kind]
-        flux_object = builder(yaml_doc)
-        if not flux_object:
-            print(f"Could not build flux object from {yaml_doc!s:200.200}...")
         else:
-            created_objects[str(flux_object)] = flux_object
+            create_flux_object_from_yaml_doc(created_objects, kind, yaml_doc)
+
+
+def create_flux_object_from_yaml_doc(created_objects, kind, yaml_doc):
+    builder = Kind2Builder[kind]
+    flux_object = builder(yaml_doc)
+    if not flux_object:
+        print(f"Could not build flux object from {yaml_doc!s:200.200}...")
+    else:
+        created_objects[str(flux_object)] = flux_object
 
 
 def compose_helm_releases(flux_objects):
